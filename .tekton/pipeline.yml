@@ -1,0 +1,90 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: app-cd-pipeline
+spec:
+  description: >
+    A CI/CD pipeline that cleans up, clones code, lints, tests, builds, and deploys an application on OpenShift.
+
+  workspaces:
+    - name: output
+
+  params:
+    - name: git-url
+      type: string
+      description: The Git repository URL
+    - name: git-revision
+      type: string
+      description: The Git branch or commit to clone
+      default: "main"
+    - name: app-name
+      type: string
+      description: The name of the application
+    - name: build-image
+      type: string
+      description: The image to be built and deployed
+
+  tasks:
+    - name: cleanup
+      taskRef:
+        name: cleanup
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: git-clone
+      runAfter: ["cleanup"]
+      taskRef:
+        name: git-clone
+        kind: ClusterTask
+      workspaces:
+        - name: output
+          workspace: output
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+
+    - name: flake8-lint
+      runAfter: ["git-clone"]
+      taskRef:
+        name: flake8
+        kind: ClusterTask
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: nose-tests
+      runAfter: ["flake8-lint"]
+      taskRef:
+        name: nose
+      workspaces:
+        - name: source
+          workspace: output
+
+    - name: buildah
+      runAfter: ["nose-tests"]
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      workspaces:
+        - name: source
+          workspace: output
+      params:
+        - name: IMAGE
+          value: $(params.build-image)
+
+    - name: deploy
+      runAfter: ["buildah"]
+      taskRef:
+        name: openshift-client
+        kind: ClusterTask
+      workspaces:
+        - name: source
+          workspace: output
+      params:
+        - name: SCRIPT
+          value: |
+            oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
