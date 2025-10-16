@@ -75,16 +75,3 @@ spec:
       params:
         - name: IMAGE
           value: $(params.build-image)
-
-    - name: deploy
-      runAfter: ["buildah"]
-      taskRef:
-        name: openshift-client
-        kind: ClusterTask
-      workspaces:
-        - name: source
-          workspace: output
-      params:
-        - name: SCRIPT
-          value: |
-            oc create deployment $(params.app-name) --image=$(params.build-image) --dry-run=client -o yaml | oc apply -f -
